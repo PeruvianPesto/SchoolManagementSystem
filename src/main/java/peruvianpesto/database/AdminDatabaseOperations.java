@@ -5,10 +5,27 @@ import java.util.ArrayList;
 import java.util.List;
 import peruvianpesto.ui.AdminDashboard;
 
+/**
+ * AdminDatabaseOperations provides all database operations needed for admin functionality.
+ * This includes managing students, teachers, courses, and course assignments.
+ *
+ * Key Features:
+ * - CRUD operations for students, teachers, and courses
+ * - Managing course assignments between teachers and courses
+ * - Transactional operations for data integrity
+ * - Comprehensive error handling and logging
+ */
 public class AdminDatabaseOperations {
 
+    /**
+     * Retrieves all student records with their enrollment counts from the database.
+     *
+     * @return List of StudentInfo objects containing student details
+     * @throws RuntimeException if database operation fails
+     */
     public static List<AdminDashboard.StudentInfo> getAllStudents() {
         List<AdminDashboard.StudentInfo> students = new ArrayList<>();
+        // SQL query joins users, students, and counts enrolled courses
         String sql = "SELECT u.id, u.username, s.name, " +
                 "COALESCE(enrolled_count.count, 0) as enrolled_courses " +
                 "FROM users u " +
@@ -39,6 +56,7 @@ public class AdminDatabaseOperations {
             System.err.println("Error loading students: " + e.getMessage());
             throw new RuntimeException("Failed to load students", e);
         } finally {
+            // Ensure resources are closed properly
             try {
                 if (rs != null) rs.close();
                 if (stmt != null) stmt.close();
@@ -51,9 +69,14 @@ public class AdminDatabaseOperations {
         return students;
     }
 
-    // Get all teachers
+    /**
+     * Retrieves all teacher records with their course counts from the database.
+     *
+     * @return List of TeacherInfo objects containing teacher details
+     */
     public static List<AdminDashboard.TeacherInfo> getAllTeachers() {
         List<AdminDashboard.TeacherInfo> teachers = new ArrayList<>();
+        // SQL query joins users, teachers, and counts assigned courses
         String sql = "SELECT u.id, u.username, t.name, " +
                 "COALESCE(teaching_count.count, 0) as courses_teaching " +
                 "FROM users u " +
@@ -84,9 +107,14 @@ public class AdminDatabaseOperations {
         return teachers;
     }
 
-    // Get all courses
+    /**
+     * Retrieves all course records with instructor information from the database.
+     *
+     * @return List of CourseInfo objects containing course details
+     */
     public static List<AdminDashboard.CourseInfo> getAllCourses() {
         List<AdminDashboard.CourseInfo> courses = new ArrayList<>();
+        // SQL query joins courses with teacher assignments
         String sql = "SELECT c.crn, c.course_name, c.credits, c.course_size as capacity, " +
                 "COALESCE(t.name, 'Not Assigned') as instructor_name " +
                 "FROM courses c " +
@@ -116,7 +144,15 @@ public class AdminDatabaseOperations {
         return courses;
     }
 
-    // Add a new course
+    /**
+     * Adds a new course to the database.
+     *
+     * @param courseName Name of the course
+     * @param crn Course Reference Number (unique identifier)
+     * @param credits Number of credits the course is worth
+     * @param capacity Maximum number of students allowed
+     * @return true if operation succeeded, false otherwise
+     */
     public static boolean addCourse(String courseName, int crn, float credits, int capacity) {
         String sql = "INSERT INTO courses (crn, course_name, credits, course_size, num_students) VALUES (?, ?, ?, ?, 0)";
 
@@ -135,6 +171,7 @@ public class AdminDatabaseOperations {
             }
         } catch (SQLException e) {
             System.out.println("Error adding course: " + e.getMessage());
+            // Handle duplicate CRN case
             if (e.getErrorCode() == 1062 || e.getMessage().contains("Duplicate entry")) {
                 System.out.println("Course with CRN " + crn + " already exists");
             }
@@ -144,14 +181,19 @@ public class AdminDatabaseOperations {
         return false;
     }
 
-    // Remove a course
+    /**
+     * Removes a course and all related data from the database in a transactional operation.
+     *
+     * @param crn Course Reference Number to remove
+     * @return true if operation succeeded, false otherwise
+     */
     public static boolean removeCourse(int crn) {
         Connection conn = null;
         try {
             conn = DatabaseConnection.getConnection();
             conn.setAutoCommit(false); // Start transaction
 
-            // Remove from course_enrollments first
+            // Remove from course_enrollments first (foreign key constraint)
             String removeEnrollmentsSql = "DELETE FROM course_enrollments WHERE course_crn = ?";
             PreparedStatement enrollStmt = conn.prepareStatement(removeEnrollmentsSql);
             enrollStmt.setInt(1, crn);
@@ -214,7 +256,12 @@ public class AdminDatabaseOperations {
         return false;
     }
 
-    // Remove a user (student or teacher)
+    /**
+     * Removes a user (student or teacher) and all related data from the database.
+     *
+     * @param userId ID of the user to remove
+     * @return true if operation succeeded, false otherwise
+     */
     public static boolean removeUser(int userId) {
         Connection conn = null;
         try {
@@ -235,7 +282,7 @@ public class AdminDatabaseOperations {
 
             String userType = rs.getString("user_type");
 
-            // Remove from specific table first (students or teachers)
+            // Handle student-specific removals
             if ("student".equals(userType)) {
                 // Remove student enrollments first
                 String removeEnrollmentsSql = "DELETE FROM course_enrollments WHERE student_id = ?";
@@ -318,7 +365,13 @@ public class AdminDatabaseOperations {
         return false;
     }
 
-    // Assign a course to a teacher
+    /**
+     * Assigns a course to a teacher in the database.
+     *
+     * @param teacherId ID of the teacher
+     * @param crn Course Reference Number
+     * @return true if operation succeeded, false otherwise
+     */
     public static boolean assignCourseToTeacher(int teacherId, int crn) {
         String sql = "INSERT INTO teacher_courses (teacher_id, course_crn, course_order) VALUES (?, ?, ?)";
 
@@ -365,7 +418,13 @@ public class AdminDatabaseOperations {
         return false;
     }
 
-    // Unassign a course from a teacher
+    /**
+     * Unassigns a course from a teacher in the database.
+     *
+     * @param teacherId ID of the teacher
+     * @param crn Course Reference Number
+     * @return true if operation succeeded, false otherwise
+     */
     public static boolean unassignCourseFromTeacher(int teacherId, int crn) {
         String sql = "DELETE FROM teacher_courses WHERE teacher_id = ? AND course_crn = ?";
 
@@ -390,7 +449,11 @@ public class AdminDatabaseOperations {
         return false;
     }
 
-    // Get all course assignments
+    /**
+     * Retrieves all course assignments between teachers and courses.
+     *
+     * @return List of CourseAssignmentInfo objects
+     */
     public static List<AdminDashboard.CourseAssignmentInfo> getAllCourseAssignments() {
         List<AdminDashboard.CourseAssignmentInfo> assignments = new ArrayList<>();
         String sql = "SELECT t.name as teacher_name, c.course_name, c.crn " +
@@ -419,7 +482,15 @@ public class AdminDatabaseOperations {
         return assignments;
     }
 
-    // Add a new student
+    /**
+     * Adds a new student to the database with transactional integrity.
+     *
+     * @param username Login username
+     * @param password Login password (should be hashed in production)
+     * @param name Full name of student
+     * @param maxUnits Maximum units student can enroll in
+     * @return true if operation succeeded, false otherwise
+     */
     public static boolean addStudent(String username, String password, String name, float maxUnits) {
         Connection conn = null;
         try {
@@ -430,7 +501,7 @@ public class AdminDatabaseOperations {
             String userSql = "INSERT INTO users (username, password_hash, user_type) VALUES (?, ?, 'student')";
             PreparedStatement userStmt = conn.prepareStatement(userSql, Statement.RETURN_GENERATED_KEYS);
             userStmt.setString(1, username);
-            userStmt.setString(2, password); // In production, this should be hashed
+            userStmt.setString(2, password); // Note: In production, use hashed password
             userStmt.executeUpdate();
 
             // Get the generated user ID
@@ -479,7 +550,16 @@ public class AdminDatabaseOperations {
         return false;
     }
 
-    // Add a new teacher
+    /**
+     * Adds a new teacher to the database with transactional integrity.
+     *
+     * @param username Login username
+     * @param password Login password (should be hashed in production)
+     * @param name Full name of teacher
+     * @param maxCourses Maximum courses teacher can teach
+     * @param coursesTaught Currently assigned courses count
+     * @return true if operation succeeded, false otherwise
+     */
     public static boolean addTeacher(String username, String password, String name, int maxCourses, int coursesTaught) {
         Connection conn = null;
         try {
@@ -490,7 +570,7 @@ public class AdminDatabaseOperations {
             String userSql = "INSERT INTO users (username, password_hash, user_type) VALUES (?, ?, 'teacher')";
             PreparedStatement userStmt = conn.prepareStatement(userSql, Statement.RETURN_GENERATED_KEYS);
             userStmt.setString(1, username);
-            userStmt.setString(2, password); // In production, this should be hashed
+            userStmt.setString(2, password); // Note: In production, use hashed password
             userStmt.executeUpdate();
 
             // Get the generated user ID
@@ -540,11 +620,26 @@ public class AdminDatabaseOperations {
         return false;
     }
 
-    // Overloaded methods for backward compatibility (using default values)
+    /**
+     * Adds a new student with default max units (18).
+     *
+     * @param username Login username
+     * @param password Login password
+     * @param name Full name of student
+     * @return true if operation succeeded, false otherwise
+     */
     public static boolean addStudent(String username, String password, String name) {
         return addStudent(username, password, name, 18.0f); // Default 18 units
     }
 
+    /**
+     * Adds a new teacher with default course limits (5 max, 0 currently teaching).
+     *
+     * @param username Login username
+     * @param password Login password
+     * @param name Full name of teacher
+     * @return true if operation succeeded, false otherwise
+     */
     public static boolean addTeacher(String username, String password, String name) {
         return addTeacher(username, password, name, 5, 0); // Default 5 max courses, 0 currently taught
     }
